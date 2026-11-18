@@ -1,0 +1,10 @@
+/target/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.log
+.idea/
