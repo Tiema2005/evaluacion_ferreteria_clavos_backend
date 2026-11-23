@@ -51,3 +51,89 @@ Las credenciales de PostgreSQL y el secreto de JWT se configuran en el entorno
 de ejecución de EC2.
 
 [Repositorio público del backend](https://github.com/Tiema2005/evaluacion_ferreteria_clavos_backend)
+
+
+
+## Ampliación del domingo 22: CRUD, roles, JWT y Swagger (código preparado)
+
+**No marques como "Listo" hasta ejecutar las pruebas reales contra el RDS del equipo.**
+Este ZIP se construyó a partir del respaldo compartido; conserva el código de registro, login y sus archivos SQL originales. Se agregaron los archivos `UsuariosCrudController`, `SeguridadUsuarios`, `ErroresUsuarios`, un SQL de roles y una colección de Postman para el CRUD. Verifica la compatibilidad con el esquema del equipo antes de fusionar estos cambios a `main`.
+
+### Configuración y arranque
+
+1. Confirma que `public.usuario` tenga las columnas `id_usuario`, `id_rol`, `nombre`, `apellido`, `correo`, `password_hash`, `activo` y que `public.rol` tenga `id_rol` y `nombre`.
+2. Ejecuta `sql/01-usuarios.sql` **solo si aún no existen las tablas**. Este script usa `CREATE TABLE IF NOT EXISTS` y no migra tablas preexistentes. Revisa primero el esquema real del equipo. Ejecuta `sql/02-roles-ferreteria.sql` para crear los roles que falten.
+3. Exporta `DB_URL`, `DB_USER`, `DB_PASSWORD` y `JWT_SECRET` con valores privados del equipo; no los agregues al repositorio. En Windows PowerShell puedes establecerlos durante la sesión así (reemplaza los valores de ejemplo):
+
+```powershell
+$env:DB_URL = 'jdbc:postgresql://HOST_RDS:5432/ferreteria_db?sslmode=require'
+$env:DB_USER = 'USUARIO_RDS'
+$env:DB_PASSWORD = 'TU_PASSWORD_PRIVADA'
+# Genera y guarda un secreto hexadecimal de 32 bytes en un lugar seguro del equipo;
+# el valor aquí es deliberadamente un marcador de posición, NO una clave válida.
+$env:JWT_SECRET = 'PEGA_AQUI_64_CARACTERES_HEX_GENERADOS_EN_PRIVADO'
+mvn spring-boot:run
+```
+
+Si dispones de certificado RDS usa `sslmode=verify-full` con `sslrootcert` tal como en la configuración original del equipo; `require` solo cifra el canal, sin validar el nombre del servidor. **No pegues estos valores reales en ChatGPT ni en GitHub**. En EC2 utiliza variables de entorno equivalentes (ver sección anterior). Configura opcionalmente `CORS_ORIGINS` con el origen EXACTO de React (`https://...`), separado por comas si son varios.
+
+4. Accede a Swagger en `http://localhost:8080/swagger-ui/index.html` o mediante túnel SSH seguro hacia EC2. La aplicación escucha solo en `127.0.0.1:8080` salvo que `SERVER_ADDRESS` indique otra interfaz. Evita exponer el puerto 8080 públicamente; usa túnel SSH o un proxy HTTPS con configuración adecuada.
+5. Importa `postman/Ferreteria-CRUD-JWT.postman_collection.json`. Registra una cuenta de prueba nueva, inicia sesión y utiliza la variable `token` que guarda el login. Los ejemplos usan correos ficticios; cambia el correo si ya existe.
+
+### Roles y permisos
+
+- Registro público: crea siempre un usuario con el rol `CLIENTE`, decidido por el backend.
+- `ADMINISTRADOR`: puede listar, consultar, crear empleados, editar roles y desactivar usuarios.
+- `CLIENTE`, `VENDEDOR`, `CONTRATISTA`: pueden ver y editar únicamente **su propia cuenta**, no listar otras cuentas ni modificar roles.
+- Los roles se consultan en PostgreSQL en cada operación protegida; la firma y expiración del JWT se verifican en Spring Security antes del controlador.
+- Un usuario desactivado pierde acceso a las rutas de usuarios. Para cerrar el login inmediatamente después de desactivar, una autenticación posterior se rechaza.
+
+**Crear el primer administrador para las pruebas:** regístrate con un correo exclusivo del equipo y, usando tu cliente SQL autorizado y acceso de DBA, actualiza manualmente **solo esa cuenta de prueba** a `ADMINISTRADOR`:
+
+```sql
+UPDATE public.usuario
+SET id_rol = (SELECT id_rol FROM public.rol WHERE nombre = 'ADMINISTRADOR')
+WHERE correo = 'CORREO_DE_PRUEBA_DEL_EQUIPO';
+```
+
+Comprueba con un `SELECT` el rol asignado y vuelve a iniciar sesión; guarda el token recibido solo en Postman. **Nunca crees una cuenta administrativa pública ni guardes contraseñas de prueba en GitHub.**
+
+### API REST
+
+| Método | Ruta | Acceso | Respuesta esperada |
+| --- | --- | --- | --- |
+| POST | `/api/v1/auth/registro` | Público | 201 o 400/409 |
+| POST | `/api/v1/auth/login` | Público | 200 con JWT o 401 |
+| GET | `/api/v1/usuarios` | ADMINISTRADOR | 200; sin JWT 401, otro rol 403 |
+| GET | `/api/v1/usuarios/{id}` | Titular o ADMINISTRADOR | 200, 403 o 404 |
+| POST | `/api/v1/usuarios` | ADMINISTRADOR | 201, 400 o 409 |
+| PUT | `/api/v1/usuarios/{id}` | Titular o ADMINISTRADOR | 200, 403, 404 o 409 |
+| DELETE | `/api/v1/usuarios/{id}` | ADMINISTRADOR | 204, 403 o 404 (desactivación lógica) |
+
+Se puede enviar un `PUT` parcial: los campos ausentes se mantienen. Solo el ADMINISTRADOR puede establecer `rol`. Una contraseña nueva se convierte a BCrypt. La respuesta jamás incluye el hash.
+
+### Pruebas que deben quedar documentadas
+
+- Registrar → 201. SQL confirma nuevo usuario, rol CLIENTE, y `password_hash` con BCrypt.
+- Reiniciar backend → el usuario sigue en PostgreSQL/RDS.
+- Login correcto → 200 + JWT con `expiraEnSegundos = 3600`. Incorrecto → 401 genérico.
+- Sin token → 401; token modificado o caducado → 401; rol incorrecto → 403.
+- Un CLIENTE puede editar su cuenta pero **no** ver ni editar el ID de otra persona → 403.
+- ADMINISTRADOR puede listar y crear empleados, cambiar rol y desactivar una cuenta → 204.
+- Swagger muestra todas las rutas y permite usar "Authorize" para las protegidas.
+
+### Tabla de estado para el docente
+
+| Operación | Estado actual (a verificar) | Evidencia requerida |
+| --- | --- | --- |
+| Crear usuarios | Código preparado | Postman 201 + SQL |
+| Listar usuarios | Código preparado | Swagger 200 (administrador) |
+| Consultar usuario | Código preparado | Swagger 200/403 (titular / ajeno) |
+| Modificar usuario | Código preparado | Swagger 200 + SQL |
+| Desactivar usuario | Código preparado | Swagger 204 + SQL |
+| Login JWT | Código previo + verificación agregada | Postman 200, 401, 403 |
+| Roles en base | SQL preparado | SELECT public.rol y pruebas de permiso |
+| Swagger | Dependencia y rutas preparadas | Captura Swagger en entorno real |
+| AWS/RDS | **No verificado en este ZIP** | Conexión, pruebas y reinicio en EC2 |
+
+**Nota sobre el estado:** el código se ha preparado, pero **no se ha compilado ni ejecutado aquí con AWS/RDS**. Registra las pruebas reales realizadas por el equipo antes de la entrega.
