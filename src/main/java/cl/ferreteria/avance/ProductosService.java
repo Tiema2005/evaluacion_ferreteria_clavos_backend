@@ -1,5 +1,6 @@
 package cl.ferreteria.avance;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.dao.DuplicateKeyException;
@@ -13,8 +14,10 @@ import cl.ferreteria.avance.ProductosRepository.Producto;
 
 @Service
 class ProductosService {
+    @Schema(name = "ProductoAlta")
     record Alta(Long idCategoria, String codigo, String nombre, String descripcion,
                 BigDecimal precio, Long stockActual, Long stockMinimo) {}
+    @Schema(name = "ProductoEdicion")
     record Edicion(Long idCategoria, String codigo, String nombre, String descripcion,
                    BigDecimal precio, Long stockMinimo) {}
     record CambioStock(Long stockActual, String motivo) {}
