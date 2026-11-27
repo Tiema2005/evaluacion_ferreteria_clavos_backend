@@ -4,6 +4,11 @@ import java.util.Map;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,6 +40,16 @@ class UsuariosController {
     ResponseEntity<Sesion> login(@RequestBody Login datos) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
             .body(usuarios.iniciarSesion(datos.correo(), datos.password()));
+    }
+
+    @Operation(summary = "Validar la sesión JWT y consultar el usuario activo")
+    @SecurityRequirement(name = "bearerAuth")
+    @GetMapping("/me")
+    ResponseEntity<Usuario> yo(@AuthenticationPrincipal Jwt jwt) {
+        // En cada consulta verifica contra PostgreSQL que la cuenta siga activa.
+        // El servicio responde 401 si la cuenta fue desactivada.
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+            .body(usuarios.usuarioActual(jwt));
     }
 
     @ExceptionHandler(ResponseStatusException.class)
