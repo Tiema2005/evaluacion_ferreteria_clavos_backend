@@ -248,24 +248,31 @@ class PedidosService {
 
         if (pago.equals("CUENTA_CORRIENTE")) {
 
+            if (!"CONTRATISTA".equals(usuario.rol()))
+                throw error(HttpStatus.FORBIDDEN,
+                    "Solo los contratistas pueden comprar a cuenta corriente.");
+
             if (total.signum() <= 0 ||
                     total.compareTo(
                         new BigDecimal("9999999999.99")) > 0)
                 throw error(HttpStatus.BAD_REQUEST,
                     "Monto de cuenta corriente inválido.");
 
-            int registrados = jdbc.update("""
-                INSERT INTO public.movimiento_cuenta
-                    (id_cuenta, id_pedido, tipo_movimiento,
-                     monto, descripcion)
-                SELECT id_cuenta, ?, 'CARGO', ?, 'Compra'
-                FROM public.cuenta_corriente
+            // Serializa cargos con los abonos de la cuenta corriente.
+            var cuentasActivas = jdbc.queryForList("""
+                SELECT id_cuenta FROM public.cuenta_corriente
                 WHERE id_cliente = ? AND estado = 'ACTIVA'
-                """, pedido, total, cliente);
-
-            if (registrados != 1)
+                FOR UPDATE
+                """, cliente);
+            if (cuentasActivas.size() != 1)
                 throw error(HttpStatus.CONFLICT,
                     "No tienes una cuenta corriente activa.");
+
+            jdbc.update("""
+                INSERT INTO public.movimiento_cuenta
+                    (id_cuenta, id_pedido, tipo_movimiento, monto, descripcion)
+                VALUES (?, ?, 'CARGO', ?, 'Compra')
+                """, cuentasActivas.get(0).get("id_cuenta"), pedido, total);
         }
 
         return detalle(jwt, pedido);
