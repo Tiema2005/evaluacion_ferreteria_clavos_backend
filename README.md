@@ -1,239 +1,220 @@
-# Ferretería Los Maestros — Backend
+# Ferretería Los Maestros — Backend · Evaluación Parcial 3
 
-**Asignatura:** DSY1104 · Desarrollo Fullstack II (2026)  
-**Proyecto:** Ferretería Los Maestros  
-**Equipo:** 4  
-**Etapa documentada:** Evaluación Parcial 3 — usuarios, autenticación, roles e integración con React  
-**Actualización del estado:** 24 de noviembre de 2026
+**Asignatura:** DSY1104 · Desarrollo Fullstack II · 2026
+**Caso:** Ferretería Los Maestros
+**Tecnología:** Java (compilación 17 según `pom.xml`), Spring Boot 3.5.8, Spring Security, JDBC, PostgreSQL RDS y Swagger/OpenAPI.
+**Estado de fuente:** rama de desarrollo `feature/catalogo-productos`, ZIP revisado el 27/11/2026.
 
-## 1. Descripción del proyecto
+## Repositorios
 
-Backend REST desarrollado con **Java 21, Spring Boot 3.5.8, Spring Security y PostgreSQL** para el caso de Ferretería Los Maestros. Se ejecutó en una instancia **Amazon EC2 (Ubuntu)** y utiliza una base de datos relacional **PostgreSQL en Amazon RDS**.
+- [Backend](https://github.com/Tiema2005/evaluacion_ferreteria_clavos_backend)
+- [Frontend](https://github.com/Tiema2005/evaluacion_ferreteria_clavos_frontend)
 
-En esta etapa, el módulo implementado gestiona usuarios, registro, inicio de sesión, JWT, permisos por rol y desactivación lógica de cuentas. El frontend está desarrollado con **React y Vite** y se comunica con la API mediante solicitudes HTTP. Se utiliza **Swagger/OpenAPI** para documentar y probar los endpoints.
+> Las URLs públicas de EC2 pueden cambiar al reiniciar la instancia. Para mostrar el trabajo al docente se debe comprobar la IPv4 pública actual y **desplegar primero las ramas verificadas en el servicio principal**. Los resultados de las pruebas aisladas no garantizan que `main` o `:8080` tengan esta versión.
 
-**Alcance real de esta etapa:** el módulo de usuarios está integrado y probado. Las funcionalidades de catálogo y pedidos/solicitudes forman parte de la siguiente etapa de la Evaluación Parcial 3; no se presentan aquí como CRUD del backend ya terminado.
-
-## 2. Repositorios y enlaces de demostración
-
-- [Repositorio backend (GitHub)](https://github.com/Tiema2005/evaluacion_ferreteria_clavos_backend)
-- [Repositorio frontend (GitHub)](https://github.com/Tiema2005/evaluacion_ferreteria_clavos_frontend)
-- **Frontend publicado — última IP probada:** http://44.192.82.241/
-- **Swagger UI — última IP probada:** http://44.192.82.241:8080/swagger-ui/index.html
-- **Documento OpenAPI:** http://44.192.82.241:8080/v3/api-docs
-
-> **Importante:** `44.192.82.241` fue la IP pública verificada durante las pruebas del 24/11/2026. No es una dirección permanente: al detener e iniciar EC2 puede cambiar. Antes de una demostración se deben actualizar los enlaces y, si cambia la IP utilizada en la compilación de React, volver a generar y desplegar el frontend con la nueva `VITE_API_URL`. Que un enlace histórico aparezca aquí no garantiza disponibilidad continua.
->
-> El laboratorio utilizó **HTTP**, no HTTPS. Es un despliegue académico de demostración: no se deben utilizar credenciales personales ni tratar esta configuración como un despliegue de producción seguro.
-
-## 3. Arquitectura y responsabilidades
+## Arquitectura
 
 ```text
-Navegador / React (Vite)
-       |
-       | solicitudes a /api/v1/...
-       v
-Spring Boot REST + Spring Security (EC2, puerto 8080)
-       |
-       | JDBC / consultas y operaciones sobre usuarios
-       v
-Amazon RDS PostgreSQL (base ferreteria_db, puerto 5432)
-
-Nginx (EC2, puerto 80) entrega los archivos compilados de React.
-Swagger UI documenta los endpoints implementados por Spring Boot.
+React / Vite (navegador)
+     | Axios /api/v1, JWT Bearer
+     v
+Spring Boot REST + Spring Security (Ubuntu EC2)
+     | Servicios + JdbcTemplate + transacciones
+     v
+PostgreSQL AWS RDS
 ```
 
-- **React:** formularios, estado de sesión, navegación, mensajes y pantallas según el rol. La autorización efectiva se realiza nuevamente en el servidor.
-- **Controladores Spring Boot:** reciben solicitudes HTTP y devuelven respuestas y códigos de estado.
-- **Servicios y repositorios:** gestionan reglas de usuarios y acceso a datos.
-- **Spring Security/JWT:** verifica la autenticación y restringe operaciones según los permisos.
-- **PostgreSQL RDS:** guarda usuarios y roles independientemente de que se reinicie el proceso Java.
+En EC2, Nginx publica la compilación de React. La instancia usada para verificar catálogo/pedidos tiene servicio principal en `8080` y servicio aislado de pruebas en `127.0.0.1:8081`, con configuración propia para `ferreteria_catalogo_test`.
 
-El código incluye clases del módulo de usuarios bajo `src/main/java/cl/ferreteria/avance/`, como `UsuariosController`, `UsuariosCrudController`, `UsuariosServicio`, `UsuariosRepositorio`, `SeguridadUsuarios` y `TokenUsuarios`.
+## Modelo y persistencia
 
-## 4. Modelo de datos
+El esquema PostgreSQL comprende 11 tablas: `rol`, `usuario`, `categoria`, `producto`, `cliente`, `pedido`, `detalle_pedido`, `movimiento_inventario`, `despacho`, `cuenta_corriente` y `movimiento_cuenta`.
 
-En el RDS del equipo se verificó la existencia de **11 tablas**: `categoria`, `cliente`, `cuenta_corriente`, `despacho`, `detalle_pedido`, `movimiento_cuenta`, `movimiento_inventario`, `pedido`, `producto`, `rol` y `usuario`.
+- `usuario.id_rol` → `rol.id_rol`; contraseñas almacenadas con BCrypt.
+- `producto.id_categoria` → `categoria.id_categoria`; código único, stock y estado activo.
+- `pedido.id_cliente` → `cliente.id_cliente`; líneas en `detalle_pedido`.
+- `movimiento_inventario` audita salidas, entradas y ajustes.
+- `cuenta_corriente` y `movimiento_cuenta` calculan saldo por cargos menos abonos (módulo adicional pendiente de prueba integral).
 
-El módulo implementado en esta entrega trabaja principalmente con:
+## Diagramas y decisiones técnicas (Guía 19)
 
-- **`public.rol`:** `id_rol`, `nombre`. Roles registrados: `ADMINISTRADOR`, `VENDEDOR`, `CONTRATISTA` y `CLIENTE`.
-- **`public.usuario`:** `id_usuario`, `id_rol`, `nombre`, `apellido`, `correo`, `password_hash`, `activo` y `fecha_registro`.
-- **Relación:** cada usuario referencia un rol mediante `usuario.id_rol`.
-- **Integridad:** el correo es único; las contraseñas se almacenan mediante hash BCrypt y no se devuelven en las respuestas de la API.
-- **Desactivación lógica:** la operación DELETE marca al usuario como inactivo; no borra físicamente su fila.
+### Diagrama entidad-relación del dominio
 
-**Scripts presentes en el proyecto:** `sql/01-usuarios.sql`, `sql/02-roles-ferreteria.sql` y `sql/verificar-usuarios.sql`. **No se deben ejecutar scripts de creación sobre la base existente sin revisar previamente el esquema y los datos.**
+```mermaid
+erDiagram
+    ROL ||--o{ USUARIO : tiene
+    USUARIO ||--o| CLIENTE : representa
+    CATEGORIA ||--o{ PRODUCTO : agrupa
+    CLIENTE ||--o{ PEDIDO : realiza
+    PEDIDO ||--|{ DETALLE_PEDIDO : incluye
+    PRODUCTO ||--o{ DETALLE_PEDIDO : vendido_en
+    PRODUCTO ||--o{ MOVIMIENTO_INVENTARIO : registra
+    PEDIDO ||--o{ MOVIMIENTO_INVENTARIO : origina
+    PEDIDO ||--o| DESPACHO : contempla
+    CLIENTE ||--o| CUENTA_CORRIENTE : posee
+    CUENTA_CORRIENTE ||--o{ MOVIMIENTO_CUENTA : registra
+    PEDIDO ||--o{ MOVIMIENTO_CUENTA : puede_originar
+    ROL {
+        bigint id_rol PK
+        varchar nombre
+    }
+    USUARIO {
+        bigint id_usuario PK
+        bigint id_rol FK
+        varchar correo UK
+        varchar password_hash
+        integer activo
+    }
+    CLIENTE {
+        bigint id_cliente PK
+        bigint id_usuario FK
+        varchar tipo_cliente
+    }
+    CATEGORIA {
+        bigint id_categoria PK
+        varchar nombre
+    }
+    PRODUCTO {
+        bigint id_producto PK
+        bigint id_categoria FK
+        varchar codigo UK
+        numeric precio
+        bigint stock_actual
+    }
+    PEDIDO {
+        bigint id_pedido PK
+        bigint id_cliente FK
+        varchar estado
+        varchar metodo_pago
+    }
+    DETALLE_PEDIDO {
+        bigint id_detalle PK
+        bigint id_pedido FK
+        bigint id_producto FK
+        bigint cantidad
+    }
+    MOVIMIENTO_INVENTARIO {
+        bigint id_movimiento_inv PK
+        bigint id_producto FK
+        bigint id_pedido FK
+        varchar tipo_movimiento
+    }
+    DESPACHO {
+        bigint id_despacho PK
+        bigint id_pedido FK
+        varchar estado_despacho
+    }
+    CUENTA_CORRIENTE {
+        bigint id_cuenta PK
+        bigint id_cliente FK
+        varchar estado
+    }
+    MOVIMIENTO_CUENTA {
+        bigint id_movimiento_cuenta PK
+        bigint id_cuenta FK
+        bigint id_pedido FK
+        varchar tipo_movimiento
+        numeric monto
+    }
+```
 
-## 5. Autenticación, sesiones y permisos
+### Diagrama de secuencia: crear pedido y controlar stock
 
-1. `POST /api/v1/auth/registro` valida los datos, crea la cuenta y asigna desde el **servidor** el rol inicial `CLIENTE`.
-2. `POST /api/v1/auth/login` verifica las credenciales y devuelve un **JWT Bearer** con vigencia de **3600 segundos (1 hora)**.
-3. El frontend envía el token en las solicitudes protegidas mediante el encabezado `Authorization: Bearer <token>`.
-4. Spring Security verifica el JWT; el backend también aplica las reglas de acceso por rol y titularidad.
-5. El frontend muestra el usuario y su rol, mantiene la sesión al recargar la página y permite cerrarla. El mecanismo concreto de almacenamiento de la sesión debe consultarse en `src/context/AuthContext.jsx` del frontend.
+```mermaid
+sequenceDiagram
+    actor Usuario
+    participant React
+    participant API as Spring Boot REST
+    participant Auth as Spring Security/JWT
+    participant DB as PostgreSQL RDS
+    Usuario->>React: Confirmar carrito
+    React->>API: POST /api/v1/pedidos + Bearer
+    API->>Auth: Validar firma y expiración
+    Auth-->>API: JWT válido
+    API->>DB: Consultar usuario activo y rol
+    API->>DB: BEGIN + insertar pedido
+    API->>DB: SELECT stock_actual FOR UPDATE
+    alt Stock insuficiente
+        API->>DB: ROLLBACK
+        API-->>React: HTTP 409 Conflicto
+        React-->>Usuario: Mostrar stock insuficiente
+    else Stock suficiente
+        API->>DB: Insertar detalle, descontar stock, movimiento SALIDA
+        API->>DB: COMMIT
+        API-->>React: HTTP 201 + id_pedido
+        React-->>Usuario: Comprobante e historial
+    end
+```
 
-### Matriz de permisos del módulo de usuarios
+### Decisiones justificadas
 
-| Operación | ADMINISTRADOR | CLIENTE / VENDEDOR / CONTRATISTA |
+- **JDBC y servicios transaccionales:** consultas SQL explícitas, bloqueo `FOR UPDATE` para no vender por encima de stock y reversión automática del pedido ante `409`.
+- **JWT + comprobación en RDS:** un token firmado permite verificar la sesión, pero el rol y el estado activo se consultan nuevamente en PostgreSQL para bloquear cuentas desactivadas.
+- **Servicio Spring Boot único:** organiza controladores y servicios por responsabilidad y es válido para las tecnologías admitidas por la pauta de esta EP3; no se requiere microservicios/Docker en lo mostrado.
+- **Ambientes separados:** `ferreteria_db` para el servicio principal y `ferreteria_catalogo_test` para pruebas sobre el puerto 8081.
+
+## API `/api/v1`
+
+| Recurso | Métodos | Seguridad |
 | --- | --- | --- |
-| Registrarse e iniciar sesión | Sí | Sí |
-| Listar usuarios | Sí | No |
-| Crear usuarios desde el panel administrativo | Sí | No |
-| Consultar datos de otro usuario | Sí | No |
-| Consultar y modificar su propia cuenta | Sí | Sí |
-| Cambiar roles | Sí | No |
-| Desactivar cuentas | Sí | No |
+| `/auth/registro`, `/auth/login` | POST | Público; registro crea rol CLIENTE |
+| `/auth/me` | GET | JWT válido, usuario activo |
+| `/usuarios`, `/usuarios/{id}` | GET, POST, PUT, DELETE | CRUD restringido por rol y titularidad |
+| `/categorias` | GET | Público |
+| `/productos`, `/productos/{id}` | GET, POST, PUT, DELETE | GET público, cambios Admin |
+| `/productos/gestion` | GET | Admin/Vendedor |
+| `/productos/{id}/stock` | PUT | Admin/Vendedor |
+| `/pedidos`, `/pedidos/{id}` | GET, POST, DELETE | Clientes ven lo propio; gestor ve todos |
+| `/pedidos/{id}/estado` | PUT | Admin/Vendedor |
+| `/cuenta-corriente/mi-cuenta` | GET | Contratista |
+| `/cuenta-corriente/admin` y rutas de habilitación/abono | GET, POST | Admin; adicional |
 
-**Seguridad:** una ruta protegida responde `401` si falta un token válido o el token venció, y `403` si el usuario autenticado no tiene permisos. El frontend también oculta las opciones no autorizadas, pero **eso por sí solo no sustituye los controles del backend**.
+Swagger UI: `/swagger-ui/index.html` — OpenAPI JSON: `/v3/api-docs`. Comprobar IP/puerto reales antes de incluir enlaces públicos.
 
-Para las pruebas se habilitó una cuenta administradora de forma controlada en RDS. El registro público no debe permitir elegir libremente el rol `ADMINISTRADOR`.
+## Reglas de negocio y seguridad
 
-## 6. Contratos de la API REST implementada
+- Tokens JWT HS256 con emisor `ferreteria-los-maestros` y **vigencia de una hora** (`TokenUsuarios.java`).
+- `UsuariosService.usuarioActual` reconsulta el rol y estado del usuario en PostgreSQL. No basta con ocultar botones en React.
+- Sin token válido: HTTP **401**; autenticado sin permisos: **403**; faltan recursos: **404**.
+- Pedido con stock insuficiente: **409**, con transacción que revierte pedido y descuento; stock bloqueado mediante `SELECT ... FOR UPDATE`.
+- Clientes y contratistas solo consultan sus pedidos; vendedores y administradores gestionan estados.
+- Cancelación de pedido devuelve unidades y registra movimiento de entrada si está permitida.
+- La clave `JWT_SECRET` debe ser hexadecimal de 64 caracteres y estar fuera del repositorio.
 
-**Prefijo de versión:** `/api/v1`
+## Evidencia comprobada en la base aislada (27/11)
 
-| Método | Endpoint | Acceso | Resultado esperado |
-| --- | --- | --- | --- |
-| POST | `/api/v1/auth/registro` | Público | `201` al registrar; `400`/`409` para entradas inválidas o duplicados |
-| POST | `/api/v1/auth/login` | Público | `200` con JWT; `401` con credenciales incorrectas |
-| GET | `/api/v1/usuarios` | ADMINISTRADOR | `200` con listado; `401`/`403` según corresponda |
-| GET | `/api/v1/usuarios/{id}` | Titular o ADMINISTRADOR | `200`, `403` o `404` |
-| POST | `/api/v1/usuarios` | ADMINISTRADOR | `201`, `400` o `409` |
-| PUT | `/api/v1/usuarios/{id}` | Titular o ADMINISTRADOR | `200`, `400`, `403`, `404` o `409` |
-| DELETE | `/api/v1/usuarios/{id}` | ADMINISTRADOR | `204` al desactivar; `403`/`404` según corresponda |
+| Caso | Resultado |
+| --- | --- |
+| Registro/login y sesiones | HTTP 201/200; `/auth/me` revalida usuarios activos |
+| Catálogo | 85 importados + dos ficticios: 87 totales, 86 activos |
+| Compra #4 | Martillo `TEST-001`, 1 unidad, stock 20→19 |
+| Compra #5 | Cemento `MC001`, 1 unidad, stock 80→79; estado `ENTREGADO` |
+| Stock excesivo | HTTP 409, stock 79→79, sin nuevo pedido |
+| Permisos de contratista | 403 al consultar pedido ajeno, gestionar estados o inventario |
+| Frontend | Compilación Vite y 46/46 pruebas Vitest reportadas |
+| Cuenta corriente | Código compilado; pendiente cargo/abono end-to-end |
 
-El `PUT` implementado admite actualizar los campos enviados; los campos ausentes se conservan. Solo un administrador puede modificar el rol. Las respuestas no deben incluir `password_hash`.
+**No hay tests JUnit en el ZIP revisado** (no aparece `src/test`). Las verificaciones de API descritas fueron manuales/integración, no tests automatizados de backend.
 
-En Swagger se observaron los siete endpoints anteriores agrupados en `usuarios-controller` y `usuarios-crud-controller`. No se documenta `/api/v1/auth/me` como implementado porque no apareció en las comprobaciones de esta versión.
-
-## 7. Estado del trabajo y evidencias de prueba
-
-Los resultados siguientes corresponden a las comprobaciones efectuadas por el equipo durante el 23 y 24 de noviembre de 2026, no a una garantía de disponibilidad permanente.
-
-| Componente u operación | Estado | Evidencia observada |
-| --- | --- | --- |
-| Conexión EC2 → RDS | **Probado** | Conexión PostgreSQL desde Ubuntu y consulta de las tablas existentes |
-| Tabla de usuarios y roles | **Probado** | Consulta SQL y usuarios persistidos en RDS |
-| Registro público | **Probado** | Solicitud desde Swagger; usuario creado y visible en la base de datos |
-| Inicio de sesión con JWT | **Probado** | Login desde Swagger y desde React con credenciales de prueba |
-| CRUD de usuarios | **Probado** | Listado, creación, modificación de datos/rol y desactivación desde React; operaciones comprobadas también desde otro PC |
-| Persistencia | **Probado** | Los cambios de usuario continuaron visibles al actualizar la página y al consultar RDS |
-| Restricciones por rol | **Probado en la interfaz** | Cliente sin acceso al panel administrativo; administrador con acceso; sin sesión se redirige a login |
-| Seguridad de endpoints | **Comprobación parcial** | Respuesta `401` sin token y uso de JWT en Swagger; conservar pruebas explícitas de token alterado/caducado y de acceso ajeno |
-| Swagger/OpenAPI | **Probado** | Swagger disponible públicamente en EC2; siete endpoints del módulo de usuarios |
-| Frontend React y API | **Probado** | Inicio de sesión y gestión de usuarios en React comunicándose con el backend en AWS |
-| Nginx y frontend publicado | **Probado** | Página servida por puerto 80; archivos JavaScript cargados correctamente tras corregir el despliegue |
-| Catálogo y pedidos con CRUD real integrado | **Pendiente de etapa posterior** | No se declara implementado en el backend de esta entrega |
-| Inicio automático del backend al reiniciar EC2 | **Pendiente** | Se utilizó ejecución mediante `nohup`; no se ha configurado un servicio de arranque automático |
-| HTTPS | **Pendiente** | La demostración se realizó por HTTP |
-
-**Pruebas recomendadas para conservar como evidencia adicional:** rechazo de un JWT alterado o expirado, `403` desde una petición directa al backend con un rol sin permiso, acceso a un ID ajeno y validaciones `400`/`409`.
-
-## 8. Ejecución y verificación en AWS EC2
-
-### Requisitos
-
-- Instancia EC2 Ubuntu con Java 21 y conectividad a Amazon RDS.
-- Archivo JAR generado por Maven, disponible en `/home/ubuntu/ferreteria-backend/ferreteria-los-maestros-backend-0.1.0-SNAPSHOT.jar` durante las pruebas.
-- Variables de entorno `DB_URL`, `DB_USER`, `DB_PASSWORD` y `JWT_SECRET` con valores válidos, mantenidos fuera de GitHub.
-- Grupo de seguridad que permita los puertos necesarios para la demostración; acceso a RDS restringido a los componentes autorizados.
-
-### Verificar el estado antes de ejecutar
-
-En una conexión SSH a EC2:
+## Compilar y ejecutar
 
 ```bash
-sudo ss -ltnp | grep ':8080' || echo 'Backend no esta escuchando'
-sudo systemctl is-active nginx
-curl -sS -o /dev/null -w 'Swagger: HTTP %{http_code}\n' --max-time 10 http://127.0.0.1:8080/v3/api-docs
-curl -sS -o /dev/null -w 'Frontend: HTTP %{http_code}\n' --max-time 10 http://127.0.0.1/
+mvn clean package -DskipTests
+# Variables requeridas en el entorno (sin publicar valores):
+# DB_URL, DB_USER, DB_PASSWORD, JWT_SECRET y opcional CORS_ORIGINS
+java -jar target/ferreteria-los-maestros-backend-0.1.0-SNAPSHOT.jar --server.port=8081 --server.address=127.0.0.1
 ```
 
-Si el backend ya responde `200` en `/v3/api-docs`, no es necesario iniciarlo otra vez. Si está apagado, configurar primero las variables privadas y luego iniciar el JAR.
+**Atención:** arrancar solo con variables de una base aislada. No sobreescribir `ferreteria.service`, el JAR principal ni `.env` de producción mientras se prueba.
 
-### Ejemplo de arranque manual del JAR
+## Documentos de EP3
 
-**Ejemplo para cuando el backend no está activo** (no incluir la contraseña real en scripts, historial ni README):
+- [ERS actualizada](docs/ERS_Actualizada_EP3.docx)
+- [Documento de integración](docs/Documento_Integracion_EP3.docx)
 
-```bash
-export DB_URL='jdbc:postgresql://ferreteria-maestros-rds.c0fk3bg9ufjz.us-east-1.rds.amazonaws.com:5432/ferreteria_db?sslmode=require'
-export DB_USER='postgres'
-read -rsp 'Contrasena RDS: ' DB_PASSWORD
-printf '\n'
-export DB_PASSWORD
+## Pendiente antes del AVA
 
-# Usar una clave JWT de 32 bytes o mas, guardada en un lugar seguro del equipo.
-# Generar otra invalida las sesiones emitidas con la clave anterior.
-export JWT_SECRET="$(openssl rand -hex 32)"
-
-nohup java -jar /home/ubuntu/ferreteria-backend/ferreteria-los-maestros-backend-0.1.0-SNAPSHOT.jar \
-  --server.address=0.0.0.0 --server.port=8080 \
-  > /home/ubuntu/ferreteria-backend/springboot.log 2>&1 < /dev/null &
-```
-
-Comprueba el arranque:
-
-```bash
-curl -sS -o /dev/null -w 'Swagger: HTTP %{http_code}\n' --max-time 10 http://127.0.0.1:8080/v3/api-docs
-tail -n 30 /home/ubuntu/ferreteria-backend/springboot.log
-```
-
-**Limitaciones de este arranque:** `nohup` permite conservar el proceso al cerrar SSH, pero **no lo vuelve a iniciar automáticamente al reiniciar EC2**. Además, el secreto generado con `openssl` cambia entre ejecuciones y puede invalidar tokens anteriores. Para un despliegue permanente deben configurarse un servicio administrado, un secreto persistente y HTTPS.
-
-### Frontend en Nginx
-
-Los archivos compilados de React se publicaron en `/var/www/ferreteria/` y Nginx respondió por el puerto `80`. El frontend se compila con la variable **`VITE_API_URL`**, por ejemplo:
-
-```dotenv
-VITE_API_URL=http://44.192.82.241:8080/api/v1
-```
-
-**No subas el archivo `.env` al repositorio.** La IP anterior es la última verificada, no un valor permanente. Después de cambiar `VITE_API_URL`, ejecuta nuevamente `npm run build` en el proyecto React y despliega la carpeta `dist` actualizada. Reiniciar Nginx sin reconstruir React no cambia una URL ya incluida en el JavaScript generado.
-
-## 9. Comprobación rápida de la aplicación
-
-1. Verificar la IP pública actual en EC2; comprobar que el frontend abre desde un equipo externo y que Swagger responde.
-2. Registrar o utilizar una **cuenta ficticia** y realizar un login desde la aplicación.
-3. Comprobar que el usuario y su rol aparecen en la navegación y que la sesión se conserva al recargar.
-4. Entrar con `CLIENTE` e intentar abrir `/admin/usuarios`: la interfaz debe denegar el acceso.
-5. Entrar con `ADMINISTRADOR`, abrir `/admin/usuarios` y crear, listar, editar y desactivar una cuenta ficticia.
-6. Recargar y comprobar la persistencia; después abrir Swagger, usar **Authorize** con un JWT de prueba y ejecutar una operación protegida.
-7. Confirmar que el endpoint `DELETE` devuelve `204` al **desactivar** una cuenta, sin eliminar físicamente la fila de PostgreSQL.
-
-No incluir en capturas públicas contraseñas, JWT completos ni variables privadas.
-
-## 10. Integración con React
-
-El frontend utiliza React, React Router, servicios para consumir la API y componentes para los formularios. Durante la integración se incorporaron archivos como:
-
-- `src/services/api.js` — configuración común de solicitudes a la API.
-- `src/services/authService.js` — llamadas de registro e inicio de sesión.
-- `src/context/AuthContext.jsx` — estado y acciones de autenticación.
-- `src/components/guards/RutaProtegida.jsx` — control visual de rutas según sesión y rol.
-- `src/pages/admin/UsuariosAdmin.jsx` — administración de usuarios desde la interfaz.
-
-Los permisos deben comprobarse tanto en React como **en cada endpoint protegido del backend**. La integración de usuarios fue probada desde el frontend y desde Swagger; las pantallas de catálogo y pedidos no se contabilizan como API integrada en esta fase.
-
-## 11. Control de versiones y estado de la evaluación
-
-Se mantiene un repositorio separado para **backend** y **frontend**, con `main` como rama principal y una rama de integración `feature/ep3-integracion`.
-
-- **Backend:** en la verificación del equipo, `origin/main` y `origin/feature/ep3-integracion` presentaban el mismo historial (`0 0`). El último commit comprobado era `d591102`, relacionado con CRUD de usuarios, roles, JWT y Swagger.
-- **Frontend:** se integraron mediante Pull Request #1 dos commits: `df80c85` (registro, login y JWT) y `9d548aa` (permisos, rutas protegidas y CRUD de usuarios). El Pull Request fue fusionado a `main`.
-- **Para la presentación:** el alcance demostrado es autenticación, sesiones, control de acceso, CRUD de usuarios y documentación en Swagger.
-- **Para la entrega posterior:** desarrollar y probar catálogo, pedidos/solicitudes y su regla de stock (`409`), además de completar ERS, documentos de integración, manual por rol y evidencias adicionales, según la pauta.
-
-El estado de este README debe actualizarse cuando se incorporen y prueben esas funcionalidades; no deben marcarse como terminadas por aparecer como pantallas o tablas existentes.
-
-## 12. Seguridad y documentación pendiente
-
-- Nunca publicar credenciales, contraseñas de prueba, tokens JWT, `.env`, archivos `.pem` ni secretos de firma.
-- La clave de firma JWT no debe regenerarse involuntariamente entre reinicios si se espera conservar sesiones emitidas.
-- La base de datos RDS no necesita estar accesible directamente desde Internet; la aplicación backend debe conectarse desde EC2.
-- HTTPS, configuración de arranque automático y evidencias detalladas de pruebas de seguridad quedan por fortalecer.
-- Las guías del curso solicitan enlaces accesibles al **diagrama entidad-relación** y al **diagrama de secuencia de autenticación**. Deben agregarse aquí cuando el equipo confirme las URL compartidas con permisos de lectura; este README no inventa enlaces.
-
----
-
-**Nota de alcance:** este documento describe el avance que el equipo efectivamente mostró y comprobó hasta el 24/11/2026. No reemplaza las verificaciones finales en AWS después de detener o reiniciar la instancia.
+1. Confirmar merge de ambas ramas y ejecución de la versión final en el entorno de demostración.
+2. Repetir validación en la URL pública real de Nginx/Swagger (sin compartir contraseñas ni JWT).
+3. Completar las capturas exigidas y dejar los ZIP sin `target`, `node_modules` ni `dist`.
+4. Probar cargos y abonos de cuenta corriente antes de declararla lista.
